@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<!-- saved from url=(0063)file:///C:/Users/Madhavan_2007/Downloads/radar_dashboard_1.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MR60BHA1 — Live 3D Radar Tracker</title>
+<link href="assets/fonts.css" rel="stylesheet">
+<script src="assets/chart.umd.js"></script>
+<style>
+  :root {
+    --bg:       #f5f7fa;
+    --surface:  #ffffff;
+    --border:   rgba(0,0,0,0.10);
+    --accent:   #0a7c55;
+    --accent2:  #378ADD;
+    --accent3:  #E24B4A;
+    --text:     #1a2530;
+    --muted:    #6b7a8d;
+    --mono:     'Share Tech Mono', monospace;
+    --sans:     'Exo 2', sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow-x: hidden; }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    background: none;
+  }
+
+  /* Grid background */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .app { position: relative; z-index: 1; min-height: 100vh; padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1200px; margin: 0 auto; }
+
+  /* Header */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo { font-family: var(--mono); font-size: 18px; color: var(--accent); letter-spacing: 2px; }
+  .logo span { color: var(--muted); font-size: 12px; display: block; letter-spacing: 4px; margin-top: 2px; }
+  .conn-badge { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding: 4px 12px; border-radius: 2px; border: 1px solid; }
+  .conn-badge.live   { color: #0a7c55; border-color: #0a7c55; background: rgba(10,124,85,0.07); }
+  .conn-badge.demo   { color: #6b7a8d; border-color: #ccc; background: #f0f2f5; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .dot.pulse { animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.2;} }
+  .ws-addr { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* Metrics row */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .metric-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px;
+    padding: 12px 16px; position: relative; overflow: hidden;
+  }
+  .metric-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent-color, var(--accent));
+  }
+  .metric-card .lbl { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .metric-card .val { font-family: var(--mono); font-size: 26px; font-weight: 400; color: var(--accent-color, var(--accent)); }
+  .metric-card .unit { font-size: 12px; color: var(--muted); margin-left: 4px; }
+
+  /* Main grid */
+  .main-grid { display: grid; grid-template-columns: 1fr 340px; gap: 12px; flex: 1; }
+
+  /* Panels */
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 14px; display: flex; flex-direction: column; }
+  .panel-title { font-family: var(--mono); font-size: 11px; letter-spacing: 3px; color: var(--accent); text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .panel-title::before { content: '//'; color: var(--muted); }
+
+  /* Canvases */
+  canvas { border-radius: 2px; }
+  #c3d { width: 100%; height: 320px; display: block; }
+
+  /* Controls */
+  .ctrl-row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .ctrl-row label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  input[type=range] {
+    -webkit-appearance: none; height: 2px; background: var(--border); border-radius: 1px; width: 80px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); cursor: pointer;
+  }
+  button {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 4px 12px;
+    background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 2px; cursor: pointer;
+    transition: all .15s;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Right column */
+  .right-col { display: flex; flex-direction: column; gap: 12px; }
+
+  /* Status box */
+  .status-box { text-align: center; padding: 16px; }
+  .status-label { font-family: var(--mono); font-size: 22px; letter-spacing: 2px; }
+  .status-label.on  { color: #0a7c55; }
+  .status-label.off { color: var(--accent3); }
+  .status-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 6px; letter-spacing: 1px; }
+
+  /* Log */
+  .log-header { display: grid; grid-template-columns: 56px 1fr 1fr 1fr; gap: 4px; font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  #trail-list { max-height: 140px; overflow-y: auto; }
+  #trail-list::-webkit-scrollbar { width: 3px; }
+  #trail-list::-webkit-scrollbar-thumb { background: #ccc; }
+  .log-row { display: grid; grid-template-columns: 56px 1fr 1fr 1fr; gap: 4px; font-family: var(--mono); font-size: 10px; color: var(--muted); padding: 2px 0; border-bottom: 1px solid rgba(0,0,0,0.05); }
+  .log-row:first-child { color: #0a7c55; }
+
+  /* Top view */
+  #ctop { width: 100%; height: 160px; display: block; }
+
+  /* Bottom */
+  .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  #cline { width: 100%; height: 120px; display: block; }
+
+  /* Coordinate display */
+  .coord-display { display: flex; flex-direction: column; gap: 8px; }
+  .coord-row { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 13px; }
+  .coord-axis { width: 18px; height: 18px; border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .coord-axis.x { background: rgba(226,75,74,0.15); color: #E24B4A; }
+  .coord-axis.y { background: rgba(10,124,85,0.10); color: #0a7c55; }
+  .coord-axis.z { background: rgba(55,138,221,0.15); color: var(--accent2); }
+  .coord-bar-bg { flex: 1; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; }
+  .coord-bar { height: 100%; border-radius: 2px; transition: width .2s, background .2s; }
+  .coord-val { width: 64px; text-align: right; font-size: 12px; }
+
+  /* Ping animation on new data */
+  @keyframes ping { 0%{box-shadow:0 0 0 0 rgba(10,124,85,0.4)} 100%{box-shadow:0 0 0 12px rgba(10,124,85,0)} }
+  .ping { animation: ping .4s ease-out; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left">
+      <div class="logo">MR60BHA1 <span>3D RADAR TRACKER</span></div>
+      <span id="conn-badge" class="conn-badge live"><span class="dot pulse"></span><span>LIVE</span></span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;">
+      <span class="ws-addr">ws://localhost:8765</span>
+      <span id="fps-counter" style="font-family:var(--mono);font-size:11px;color:var(--muted);">0 fps</span>
+    </div>
+  </header>
+
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="metric-card" style="--accent-color:#E24B4A;">
+      <div class="lbl">X &nbsp;Lateral</div>
+      <div class="val" id="mx">+0.22<span class="unit">m</span></div>
+    </div>
+    <div class="metric-card" style="--accent-color:#0a7c55;">
+      <div class="lbl">Y &nbsp;Depth</div>
+      <div class="val" id="my">+0.79<span class="unit">m</span></div>
+    </div>
+    <div class="metric-card" style="--accent-color:#378ADD;">
+      <div class="lbl">Z &nbsp;Elevation</div>
+      <div class="val" id="mz">+0.00<span class="unit">m</span></div>
+    </div>
+    <div class="metric-card" style="--accent-color:#EF9F27;">
+      <div class="lbl">Distance</div>
+      <div class="val" id="mdist">0.82<span class="unit">m</span></div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- 3D view -->
+    <div class="panel">
+      <div class="panel-title">3D position view</div>
+      <canvas id="c3d" role="img" aria-label="3D scatter plot of radar target position" width="786" height="320"></canvas>
+      <div class="ctrl-row">
+        <label>ROT-X</label>
+        <input type="range" min="-90" max="90" value="25" id="rX">
+        <label>ROT-Y</label>
+        <input type="range" min="-180" max="180" value="-35" id="rY">
+        <button onclick="resetView()">Reset</button>
+        <button onclick="clearTrail()">Clear trail</button>
+        <button onclick="toggleDemo()">Toggle demo</button>
+      </div>
+    </div>
+
+    <!-- Right column -->
+    <div class="right-col">
+
+      <!-- Detection status -->
+      <div class="panel status-box">
+        <div class="panel-title">Detection status</div>
+        <div class="status-label on" id="detect-label">TARGET LOCKED</div>
+        <div class="status-sub" id="last-seen">Last: 2:11:05 PM</div>
+      </div>
+
+      <!-- Coordinate bars -->
+      <div class="panel">
+        <div class="panel-title">Axis readout</div>
+        <div class="coord-display">
+          <div class="coord-row">
+            <div class="coord-axis x">X</div>
+            <div class="coord-bar-bg"><div class="coord-bar" id="barX" style="width: 52.75%; background: rgb(226, 75, 74);"></div></div>
+            <span class="coord-val" id="cvX" style="color:#E24B4A;">+0.22</span>
+          </div>
+          <div class="coord-row">
+            <div class="coord-axis y">Y</div>
+            <div class="coord-bar-bg"><div class="coord-bar" id="barY" style="width: 59.875%; background: rgb(10, 124, 85);"></div></div>
+            <span class="coord-val" id="cvY" style="color:#0a7c55;">+0.79</span>
+          </div>
+          <div class="coord-row">
+            <div class="coord-axis z">Z</div>
+            <div class="coord-bar-bg"><div class="coord-bar" id="barZ" style="width: 50%; background: rgb(55, 138, 221);"></div></div>
+            <span class="coord-val" id="cvZ" style="color:#378ADD;">+0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top view -->
+      <div class="panel">
+        <div class="panel-title">Top view (X–Y plane)</div>
+        <canvas id="ctop" role="img" aria-label="Top-down radar plot" width="310" height="160"></canvas>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Bottom row -->
+  <div class="bottom-grid">
+
+    <!-- Log -->
+    <div class="panel">
+      <div class="panel-title">Coordinate log</div>
+      <div class="log-header"><span>Time</span><span>X (m)</span><span>Y (m)</span><span>Z (m)</span></div>
+      <div id="trail-list"><div class="log-row"><span>14:11:05</span><span>+0.22</span><span>+0.79</span><span>+0.00</span></div><div class="log-row"><span>14:11:03</span><span>+0.38</span><span>+0.73</span><span>+0.00</span></div><div class="log-row"><span>14:11:02</span><span>+0.38</span><span>+0.73</span><span>+0.00</span></div><div class="log-row"><span>14:11:00</span><span>+0.32</span><span>+0.76</span><span>+0.00</span></div><div class="log-row"><span>14:10:59</span><span>+0.47</span><span>+0.67</span><span>+0.00</span></div><div class="log-row"><span>14:10:58</span><span>+0.35</span><span>+0.75</span><span>+0.00</span></div><div class="log-row"><span>14:10:55</span><span>+0.31</span><span>+0.76</span><span>+0.00</span></div><div class="log-row"><span>14:10:53</span><span>+0.32</span><span>+0.76</span><span>+0.00</span></div><div class="log-row"><span>14:10:51</span><span>+0.31</span><span>+0.76</span><span>+0.00</span></div><div class="log-row"><span>14:10:50</span><span>+0.38</span><span>+0.73</span><span>+0.00</span></div><div class="log-row"><span>14:10:49</span><span>+0.36</span><span>+0.74</span><span>+0.00</span></div><div class="log-row"><span>14:10:48</span><span>+0.37</span><span>+0.73</span><span>+0.00</span></div><div class="log-row"><span>14:10:47</span><span>+0.10</span><span>+3.00</span><span>+0.02</span></div></div>
+    </div>
+
+    <!-- Depth chart -->
+    <div class="panel">
+      <div class="panel-title">Y depth over time</div>
+      <canvas id="cline" role="img" aria-label="Y depth over time line chart" width="685" height="342" style="display: block; box-sizing: border-box; height: 274px; width: 548px;"></canvas>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+const MAX_TRAIL = 100;
+const trail = [];
+let rx = 25, ry = -35;
+let ws = null;
+let demoEnabled = true;
+let frameCount = 0, lastFps = Date.now();
+
+function sign(n){ return n >= 0 ? '+' : ''; }
+function fmt(n){ return sign(n) + n.toFixed(2); }
+
+document.getElementById('rX').addEventListener('input', e => { rx = +e.target.value; draw3D(); });
+document.getElementById('rY').addEventListener('input', e => { ry = +e.target.value; draw3D(); });
+function resetView(){ rx=25; ry=-35; document.getElementById('rX').value=25; document.getElementById('rY').value=-35; draw3D(); }
+function clearTrail(){ trail.length=0; document.getElementById('trail-list').innerHTML=''; draw3D(); drawTop(); }
+function toggleDemo(){ demoEnabled=!demoEnabled; }
+
+function updateMetrics(d){
+  const dist = Math.sqrt(d.x*d.x + d.y*d.y + d.z*d.z);
+  document.getElementById('mx').innerHTML    = fmt(d.x)+'<span class="unit">m</span>';
+  document.getElementById('my').innerHTML    = fmt(d.y)+'<span class="unit">m</span>';
+  document.getElementById('mz').innerHTML    = fmt(d.z)+'<span class="unit">m</span>';
+  document.getElementById('mdist').innerHTML = dist.toFixed(2)+'<span class="unit">m</span>';
+
+  const MAX = 4;
+  function pct(v){ return Math.min(100, Math.max(0, ((v+MAX)/(2*MAX))*100)); }
+  document.getElementById('barX').style.width = pct(d.x)+'%';
+  document.getElementById('barY').style.width = pct(d.y)+'%';
+  document.getElementById('barZ').style.width = pct(d.z)+'%';
+  document.getElementById('cvX').textContent = fmt(d.x);
+  document.getElementById('cvY').textContent = fmt(d.y);
+  document.getElementById('cvZ').textContent = fmt(d.z);
+
+  const lbl = document.getElementById('detect-label');
+  lbl.textContent = d.detected ? 'TARGET LOCKED' : 'NO TARGET';
+  lbl.className = 'status-label ' + (d.detected ? 'on' : 'off');
+  document.getElementById('last-seen').textContent = 'Last: ' + new Date().toLocaleTimeString();
+}
+
+function addTrailRow(d){
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  const t = new Date();
+  row.innerHTML = `<span>${t.toLocaleTimeString('en',{hour12:false})}</span><span>${fmt(d.x)}</span><span>${fmt(d.y)}</span><span>${fmt(d.z)}</span>`;
+  const list = document.getElementById('trail-list');
+  list.prepend(row);
+  if(list.children.length > 40) list.removeChild(list.lastChild);
+}
+
+function project(px, py, pz, rxd, ryd, cx, cy, scale){
+  const rxr = rxd*Math.PI/180, ryr = ryd*Math.PI/180;
+  let x=px, y=py, z=pz;
+  let y2 = y*Math.cos(rxr) - z*Math.sin(rxr);
+  let z2 = y*Math.sin(rxr) + z*Math.cos(rxr);
+  y=y2; z=z2;
+  let x3 = x*Math.cos(ryr) + z*Math.sin(ryr);
+  z = x*(-Math.sin(ryr)) + z*Math.cos(ryr);
+  x = x3;
+  return { sx: cx + x*scale, sy: cy - y*scale };
+}
+
+function draw3D(){
+  const canvas = document.getElementById('c3d');
+  canvas.width  = canvas.offsetWidth  || 600;
+  canvas.height = canvas.offsetHeight || 320;
+  const ctx = canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height, cx=W/2, cy=H/2, scale=52;
+  ctx.clearRect(0,0,W,H);
+
+  // Grid
+  for(let g=-4;g<=4;g++){
+    const a=project(g,0,-4,rx,ry,cx,cy,scale), b=project(g,0,4,rx,ry,cx,cy,scale);
+    const c=project(-4,0,g,rx,ry,cx,cy,scale), dd=project(4,0,g,rx,ry,cx,cy,scale);
+    ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=0.5;
+    ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(c.sx,c.sy); ctx.lineTo(dd.sx,dd.sy); ctx.stroke();
+  }
+
+  // Axes
+  const axes = [
+    {v:[4,0,0], col:'#E24B4A', lbl:'X'},
+    {v:[0,4,0], col:'#0a7c55', lbl:'Y'},
+    {v:[0,0,4], col:'#378ADD', lbl:'Z'}
+  ];
+  const o = project(0,0,0,rx,ry,cx,cy,scale);
+  axes.forEach(ax=>{
+    const e = project(ax.v[0],ax.v[1],ax.v[2],rx,ry,cx,cy,scale);
+    ctx.strokeStyle=ax.col; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(o.sx,o.sy); ctx.lineTo(e.sx,e.sy); ctx.stroke();
+    ctx.fillStyle=ax.col; ctx.font='bold 11px Share Tech Mono, monospace';
+    ctx.fillText(ax.lbl, e.sx+4, e.sy+4);
+  });
+
+  // Trail line
+  if(trail.length > 1){
+    ctx.beginPath();
+    trail.forEach((p,i)=>{
+      const pt = project(p.x,p.y,p.z,rx,ry,cx,cy,scale);
+      i===0 ? ctx.moveTo(pt.sx,pt.sy) : ctx.lineTo(pt.sx,pt.sy);
+    });
+    ctx.strokeStyle='rgba(55,138,221,0.25)'; ctx.lineWidth=1; ctx.stroke();
+  }
+
+  // Points
+  trail.forEach((p,i)=>{
+    const pt = project(p.x,p.y,p.z,rx,ry,cx,cy,scale);
+    const alpha = 0.15+(i/trail.length)*0.85;
+    const isLast = i===trail.length-1;
+    const r = isLast ? 7 : 2.5;
+    ctx.beginPath(); ctx.arc(pt.sx,pt.sy,r,0,2*Math.PI);
+    ctx.fillStyle = isLast ? `rgba(10,124,85,${alpha})` : `rgba(55,138,221,${alpha*0.7})`;
+    ctx.fill();
+    if(isLast){
+      ctx.strokeStyle='rgba(10,124,85,0.6)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(pt.sx,pt.sy,13,0,2*Math.PI); ctx.stroke();
+      ctx.beginPath(); ctx.arc(pt.sx,pt.sy,20,0,2*Math.PI);
+      ctx.strokeStyle='rgba(10,124,85,0.15)'; ctx.stroke();
+      // coords label
+      ctx.fillStyle='rgba(10,124,85,0.9)'; ctx.font='10px Share Tech Mono, monospace';
+      ctx.fillText(`(${p.x.toFixed(1)},${p.y.toFixed(1)},${p.z.toFixed(1)})`, pt.sx+10, pt.sy-10);
+    }
+  });
+
+  // Legend
+  ctx.font='10px Share Tech Mono, monospace';
+  [['X lateral','#E24B4A',20],['Y depth','#0a7c55',34],['Z elevation','#378ADD',48]].forEach(([txt,col,yy])=>{
+    ctx.fillStyle=col; ctx.fillRect(8,yy-8,8,8);
+    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.fillText(txt,20,yy);
+  });
+}
+
+function drawTop(){
+  const canvas = document.getElementById('ctop');
+  canvas.width  = canvas.offsetWidth  || 300;
+  canvas.height = canvas.offsetHeight || 160;
+  const ctx = canvas.getContext('2d');
+  const W=canvas.width, H=canvas.height, cx=W/2, cy=H/2, scale=28;
+  ctx.clearRect(0,0,W,H);
+
+  // Grid rings
+  for(let r=1;r<=4;r++){
+    ctx.beginPath(); ctx.arc(cx,cy,r*scale,0,2*Math.PI);
+    ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=0.5; ctx.stroke();
+    ctx.fillStyle='rgba(10,124,85,0.4)'; ctx.font='8px Share Tech Mono, monospace';
+    ctx.fillText(r+'m', cx+r*scale+2, cy-2);
+  }
+  ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=0.5;
+  ctx.beginPath(); ctx.moveTo(cx,0); ctx.lineTo(cx,H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(W,cy); ctx.stroke();
+
+  // Points
+  trail.forEach((p,i)=>{
+    const sx = cx + p.x*scale, sy = cy - p.y*scale;
+    const alpha = 0.1+(i/trail.length)*0.9;
+    const isLast = i===trail.length-1;
+    ctx.beginPath(); ctx.arc(sx,sy,isLast?5:2,0,2*Math.PI);
+    ctx.fillStyle = isLast ? `rgba(10,124,85,${alpha})` : `rgba(55,138,221,${alpha*0.5})`;
+    ctx.fill();
+    if(isLast){
+      ctx.strokeStyle='rgba(10,124,85,0.5)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(sx,sy,9,0,2*Math.PI); ctx.stroke();
+    }
+  });
+
+  ctx.fillStyle='rgba(10,124,85,0.5)'; ctx.font='8px Share Tech Mono,monospace';
+  ctx.fillText('X →', W-24, cy-3); ctx.fillText('Y ↑', cx+3, 10);
+}
+
+// Line chart
+const lineLabels=[], lineData=[];
+const lineChart = new Chart(document.getElementById('cline'),{
+  type:'line',
+  data:{ labels:lineLabels, datasets:[{
+    label:'Y depth (m)', data:lineData,
+    borderColor:'#0a7c55', backgroundColor:'rgba(10,124,85,0.06)',
+    borderWidth:1.5, pointRadius:0, tension:0.4, fill:true
+  }]},
+  options:{
+    responsive:false, animation:false,
+    plugins:{ legend:{ display:false } },
+    scales:{
+      x:{ display:false },
+      y:{ ticks:{ color:'#4a6070', font:{ family:'Share Tech Mono', size:9 } }, grid:{ color:'rgba(0,0,0,0.06)' } }
+    }
+  }
+});
+
+function updateLine(d){
+  lineLabels.push(new Date().toLocaleTimeString('en',{hour12:false}));
+  lineData.push(parseFloat(d.y.toFixed(3)));
+  if(lineLabels.length>80){ lineLabels.shift(); lineData.shift(); }
+  lineChart.update();
+}
+
+// FPS counter
+setInterval(()=>{
+  const now=Date.now(), elapsed=(now-lastFps)/1000;
+  document.getElementById('fps-counter').textContent=Math.round(frameCount/elapsed)+' fps';
+  frameCount=0; lastFps=now;
+},1000);
+
+function ingest(d){
+  if(d.type==='coordinate'||d.type==='init'){
+    trail.push({x:d.x,y:d.y,z:d.z});
+    if(trail.length>MAX_TRAIL) trail.shift();
+    updateMetrics(d);
+    addTrailRow(d);
+    updateLine(d);
+    draw3D();
+    drawTop();
+    frameCount++;
+  } else if(d.type==='presence'){
+    const lbl=document.getElementById('detect-label');
+    lbl.textContent = d.detected ? 'TARGET LOCKED' : 'NO TARGET';
+    lbl.className = 'status-label '+(d.detected?'on':'off');
+  }
+}
+
+// WebSocket
+function connectWS(){
+  try {
+    ws = new WebSocket('ws://localhost:8765');
+    ws.onopen=()=>{
+      demoEnabled=false;
+      const b=document.getElementById('conn-badge');
+      b.className='conn-badge live';
+      b.innerHTML='<span class="dot pulse"></span><span>LIVE</span>';
+    };
+    ws.onmessage=e=>{ try{ ingest(JSON.parse(e.data)); }catch(ex){} };
+    ws.onclose=()=>{
+      demoEnabled=true;
+      const b=document.getElementById('conn-badge');
+      b.className='conn-badge demo';
+      b.innerHTML='<span class="dot"></span><span>DEMO MODE</span>';
+      setTimeout(connectWS,3000);
+    };
+    ws.onerror=()=>ws.close();
+  } catch(e){}
+}
+
+// Demo simulation
+let t=0;
+function demoTick(){
+  if(!demoEnabled) return;
+  t+=0.07;
+  ingest({
+    type:'coordinate',
+    x: parseFloat((Math.sin(t)*1.4).toFixed(3)),
+    y: parseFloat((1.2+Math.abs(Math.cos(t*0.35))*1.8).toFixed(3)),
+    z: parseFloat((Math.sin(t*0.55)*0.5).toFixed(3)),
+    detected: true
+  });
+}
+setInterval(demoTick, 100);
+
+// Handle resize
+window.addEventListener('resize',()=>{ draw3D(); drawTop(); });
+
+draw3D(); drawTop(); connectWS();
+</script>
+
+
+</body></html>
